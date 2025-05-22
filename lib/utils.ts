@@ -9,17 +9,9 @@ export function cn(...inputs: ClassValue[]) {
 export function getResponsiveImageUrl(url: string | undefined | null): string {
   if (!url) return "/placeholder.svg?height=600&width=600&text=Immagine+non+disponibile"
 
-  // Ensure URL uses HTTPS
-  if (url.startsWith("http:")) {
-    url = url.replace("http:", "https:")
-  }
-
-  // If it's a relative URL, add the domain
-  if (url.startsWith("/")) {
-    const wpDomain = process.env.WORDPRESS_API_URL
-      ? process.env.WORDPRESS_API_URL.split("/wp-json")[0]
-      : "https://synonymous-knee.localsite.io"
-    url = `${wpDomain}${url}`
+  // If it's a WordPress image, proxy it through our API
+  if (url.includes("synonymous-knee.localsite.io")) {
+    return `/api/image-proxy?url=${encodeURIComponent(url)}`
   }
 
   return url
@@ -29,8 +21,17 @@ export function getResponsiveImageUrl(url: string | undefined | null): string {
 export function createSrcSet(url: string): string {
   if (!url || url.includes("placeholder.svg")) return url
 
-  const baseUrl = getResponsiveImageUrl(url)
-  const sizes = [640, 750, 828, 1080, 1200]
+  // If it's not a WordPress image, return the original URL
+  if (!url.includes("synonymous-knee.localsite.io")) {
+    return url
+  }
 
-  return sizes.map((size) => `${baseUrl} ${size}w`).join(", ")
+  // For WordPress images, create a proxied srcSet
+  const sizes = [640, 750, 828, 1080, 1200]
+  return sizes
+    .map((size) => {
+      const proxiedUrl = `/api/image-proxy?url=${encodeURIComponent(url)}&width=${size}`
+      return `${proxiedUrl} ${size}w`
+    })
+    .join(", ")
 }

@@ -43,9 +43,9 @@ export function limitWords(text: string, limit: number): string {
 export function getSafeImageUrl(url?: string): string {
   if (!url) return "/placeholder.svg?height=600&width=600&text=Immagine+non+disponibile"
 
-  // Ensure URL uses HTTPS
-  if (url.startsWith("http:")) {
-    url = url.replace("http:", "https:")
+  // If it's a WordPress image, proxy it through our API
+  if (url && url.includes("synonymous-knee.localsite.io")) {
+    return `/api/image-proxy?url=${encodeURIComponent(url)}`
   }
 
   // Verifica se l'URL è relativo e aggiungi il dominio WordPress se necessario
@@ -53,7 +53,9 @@ export function getSafeImageUrl(url?: string): string {
     // Usa una stringa diretta invece di URL constructor per compatibilità server
     const wpApiUrl = process.env.WORDPRESS_API_URL || ""
     const wpDomain = wpApiUrl.split("/wp-json")[0] || "https://synonymous-knee.localsite.io"
-    return `${wpDomain}${url}`
+    const fullUrl = `${wpDomain}${url}`
+    // Proxy the full URL
+    return `/api/image-proxy?url=${encodeURIComponent(fullUrl)}`
   }
 
   return url
