@@ -2,6 +2,8 @@
  * Configurazione e funzioni per l'integrazione con WordPress Headless CMS
  */
 
+import { processWordPressPost } from "./content-processor"
+
 // URL base dell'API WordPress
 export const WORDPRESS_API_URL = process.env.WORDPRESS_API_URL || "https://synonymous-knee.localsite.io/wp-json"
 export const WORDPRESS_API_V2_URL = `${WORDPRESS_API_URL}/wp/v2` // Percorso corretto per l'API v2
@@ -226,15 +228,18 @@ export async function getAllTrainers(): Promise<WPTrainer[]> {
   try {
     const trainers = await fetchWithCache(`${WORDPRESS_API_V2_URL}/trainers?per_page=100&_embed`, {}, "all_trainers")
 
-    // Elabora i trainer per estrarre informazioni aggiuntive da _embedded
+    // Elabora i trainer per estrarre informazioni aggiuntive da _embedded e processare le immagini
     return trainers.map((trainer: any) => {
       // Estrai l'URL dell'immagine in evidenza
       const featuredImageUrl = trainer._embedded?.["wp:featuredmedia"]?.[0]?.source_url || ""
 
-      return {
+      const processedTrainer = {
         ...trainer,
         featured_image_url: featuredImageUrl,
       }
+
+      // Processa il trainer per gestire le immagini
+      return processWordPressPost(processedTrainer)
     })
   } catch (error) {
     console.error("Error fetching trainers:", error)
@@ -256,10 +261,13 @@ export async function getTrainerBySlug(slug: string): Promise<WPTrainer | null> 
     // Estrai l'URL dell'immagine in evidenza
     const featuredImageUrl = trainer._embedded?.["wp:featuredmedia"]?.[0]?.source_url || ""
 
-    return {
+    const processedTrainer = {
       ...trainer,
       featured_image_url: featuredImageUrl,
     }
+
+    // Processa il trainer per gestire le immagini
+    return processWordPressPost(processedTrainer)
   } catch (error) {
     console.error(`Error fetching trainer with slug ${slug}:`, error)
     return null
@@ -295,7 +303,7 @@ export async function getAllCourses(): Promise<WPCourse[]> {
           } else if (typeof course.acf.trainer === "object" && course.acf.trainer.ID) {
             trainerId = course.acf.trainer.ID
           } else {
-            return course
+            return processWordPressPost(course)
           }
 
           // Recupera i dati del trainer
@@ -310,16 +318,16 @@ export async function getAllCourses(): Promise<WPCourse[]> {
             const featuredImageUrl = trainerData._embedded?.["wp:featuredmedia"]?.[0]?.source_url || ""
 
             // Aggiungi i dati del trainer al corso
-            course.trainer_data = {
+            course.trainer_data = processWordPressPost({
               ...trainerData,
               featured_image_url: featuredImageUrl,
-            }
+            })
           } catch (error) {
             console.error(`Error fetching trainer data for course ${course.id}:`, error)
           }
         }
 
-        return course
+        return processWordPressPost(course)
       }),
     )
 
@@ -359,7 +367,7 @@ export async function getCourseBySlug(slug: string): Promise<WPCourse | null> {
       } else if (typeof processedCourse.acf.trainer === "object" && processedCourse.acf.trainer.ID) {
         trainerId = processedCourse.acf.trainer.ID
       } else {
-        return processedCourse
+        return processWordPressPost(processedCourse)
       }
 
       // Recupera i dati del trainer
@@ -374,16 +382,16 @@ export async function getCourseBySlug(slug: string): Promise<WPCourse | null> {
         const trainerImageUrl = trainerData._embedded?.["wp:featuredmedia"]?.[0]?.source_url || ""
 
         // Aggiungi i dati del trainer al corso
-        processedCourse.trainer_data = {
+        processedCourse.trainer_data = processWordPressPost({
           ...trainerData,
           featured_image_url: trainerImageUrl,
-        }
+        })
       } catch (error) {
         console.error(`Error fetching trainer data for course ${processedCourse.id}:`, error)
       }
     }
 
-    return processedCourse
+    return processWordPressPost(processedCourse)
   } catch (error) {
     console.error(`Error fetching course with slug ${slug}:`, error)
     return null
@@ -391,7 +399,6 @@ export async function getCourseBySlug(slug: string): Promise<WPCourse | null> {
 }
 
 // Funzione per recuperare tutti i post del blog
-// Nella funzione getAllBlogPosts, semplifichiamo il codice per migliorare le performance
 export async function getAllBlogPosts(
   perPage = 10,
   page = 1,
@@ -422,12 +429,14 @@ export async function getAllBlogPosts(
       // Estrai i nomi delle categorie
       const categoryNames = post._embedded?.["wp:term"]?.[0]?.map((cat: any) => cat.name) || []
 
-      return {
+      const processedPost = {
         ...post,
         author_name: authorName,
         featured_image_url: featuredImageUrl,
         category_names: categoryNames,
       }
+
+      return processWordPressPost(processedPost)
     })
 
     return {
@@ -465,12 +474,14 @@ export async function getBlogPostBySlug(slug: string): Promise<WPBlogPost | null
     // Estrai i nomi delle categorie
     const categoryNames = post._embedded?.["wp:term"]?.[0]?.map((cat: any) => cat.name) || []
 
-    return {
+    const processedPost = {
       ...post,
       author_name: authorName,
       featured_image_url: featuredImageUrl,
       category_names: categoryNames,
     }
+
+    return processWordPressPost(processedPost)
   } catch (error) {
     console.error(`Error fetching blog post with slug ${slug}:`, error)
     return null
@@ -498,10 +509,12 @@ export async function getAllGalleryImages(): Promise<WPGalleryImage[]> {
       // Estrai l'URL dell'immagine in evidenza
       const featuredImageUrl = image._embedded?.["wp:featuredmedia"]?.[0]?.source_url || ""
 
-      return {
+      const processedImage = {
         ...image,
         featured_image_url: featuredImageUrl,
       }
+
+      return processWordPressPost(processedImage)
     })
   } catch (error) {
     console.error("Error fetching gallery images:", error)

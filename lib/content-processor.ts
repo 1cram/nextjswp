@@ -16,11 +16,13 @@ function isProxyUrl(url: string): boolean {
  */
 function isWordPressUrl(url: string): boolean {
   if (!url || typeof url !== "string") return false
-  return (
-    url.includes("synonymous-knee.localsite.io") ||
-    url.includes("wp-content/uploads") ||
-    (url.startsWith("/") && (url.includes("uploads") || url.match(/\.(jpg|jpeg|png|gif|webp)$/i)))
-  )
+
+  const hasWordPressUrl =
+    url.includes("synonymous-knee.localsite.io") || url.includes("wp-content/uploads") || url.includes("/uploads/")
+
+  const isImageFile = url.startsWith("/") && Boolean(url.match(/\.(jpg|jpeg|png|gif|webp|avif|svg)$/i))
+
+  return hasWordPressUrl || isImageFile
 }
 
 /**
@@ -32,13 +34,15 @@ function createProxyUrl(url: string): string {
   // Don't process if it's already a proxy URL
   if (isProxyUrl(url)) return url
 
-  // Only process WordPress URLs
+  // Handle WordPress URLs
   if (isWordPressUrl(url)) {
     // Handle relative URLs
     let fullUrl = url
     if (url.startsWith("/") && !url.startsWith("//")) {
       fullUrl = `https://synonymous-knee.localsite.io${url}`
     }
+
+    // Always use proxy for WordPress images
     return `/api/image-proxy?url=${encodeURIComponent(fullUrl)}`
   }
 
@@ -54,6 +58,14 @@ export function processHtmlContent(html: string): string {
   try {
     let processedContent = html
 
+    // Replace all WordPress domain references with proxy URLs
+    processedContent = processedContent.replace(
+      /https?:\/\/synonymous-knee\.localsite\.io\/wp-content\/uploads\/[^"'\s)]+/g,
+      (match) => {
+        return `/api/image-proxy?url=${encodeURIComponent(match)}`
+      },
+    )
+
     // Replace image URLs in src attributes
     processedContent = processedContent.replace(/src="([^"]+)"/g, (match, url) => {
       const proxiedUrl = createProxyUrl(url)
@@ -64,7 +76,7 @@ export function processHtmlContent(html: string): string {
     processedContent = processedContent.replace(/srcset="([^"]+)"/g, (match, srcset) => {
       const processedSrcset = srcset
         .split(",")
-        .map((srcsetItem) => {
+        .map((srcsetItem: string) => {
           const trimmed = srcsetItem.trim()
           const spaceIndex = trimmed.indexOf(" ")
           const url = spaceIndex > -1 ? trimmed.substring(0, spaceIndex) : trimmed
@@ -81,6 +93,15 @@ export function processHtmlContent(html: string): string {
       const proxiedUrl = createProxyUrl(url)
       return `background-image: url('${proxiedUrl}')`
     })
+
+    // Replace any remaining WordPress URLs in the content
+    processedContent = processedContent.replace(
+      /synonymous-knee\.localsite\.io\/wp-content\/uploads\/[^"'\s)]+/g,
+      (match) => {
+        const fullUrl = match.startsWith("http") ? match : `https://${match}`
+        return `/api/image-proxy?url=${encodeURIComponent(fullUrl)}`
+      },
+    )
 
     return processedContent
   } catch (error) {
@@ -109,6 +130,11 @@ export function processWordPressPost<T extends Record<string, any>>(post: T): T 
       processedPost.excerpt.rendered = processHtmlContent(processedPost.excerpt.rendered)
     }
 
+    // Process title field (in case it contains images)
+    if (processedPost.title?.rendered) {
+      processedPost.title.rendered = processHtmlContent(processedPost.title.rendered)
+    }
+
     // Process featured image URL
     if (processedPost.featured_image_url) {
       processedPost.featured_image_url = createProxyUrl(processedPost.featured_image_url)
@@ -120,6 +146,23 @@ export function processWordPressPost<T extends Record<string, any>>(post: T): T 
       if (typeof sourceUrl === "string") {
         processedPost._embedded["wp:featuredmedia"][0].source_url = createProxyUrl(sourceUrl)
       }
+    }
+
+    // Process all media attachments
+    if (processedPost._embedded?.["wp:featuredmedia"]) {
+      processedPost._embedded["wp:featuredmedia"] = processedPost._embedded["wp:featuredmedia"].map((media: any) => {
+        if (media.source_url) {
+          media.source_url = createProxyUrl(media.source_url)
+        }
+        if (media.media_details?.sizes) {
+          Object.keys(media.media_details.sizes).forEach((size) => {
+            if (media.media_details.sizes[size].source_url) {
+              media.media_details.sizes[size].source_url = createProxyUrl(media.media_details.sizes[size].source_url)
+            }
+          })
+        }
+        return media
+      })
     }
 
     // Process ACF fields if they exist
@@ -146,12 +189,18 @@ function processAcfFields(acf: any): any {
     const value = processedAcf[key]
 
     if (typeof value === "string") {
-      processedAcf[key] = createProxyUrl(value)
+      // Process any string that might contain WordPress URLs
+      if (isWordPressUrl(value)) {
+        processedAcf[key] = createProxyUrl(value)
+      } else {
+        // Also process HTML content in string fields
+        processedAcf[key] = processHtmlContent(value)
+      }
     } else if (typeof value === "object" && value !== null) {
       if (Array.isArray(value)) {
         processedAcf[key] = value.map((item) => {
           if (typeof item === "string") {
-            return createProxyUrl(item)
+            return isWordPressUrl(item) ? createProxyUrl(item) : processHtmlContent(item)
           }
           if (typeof item === "object" && item !== null) {
             return processAcfFields(item)
@@ -159,8 +208,12 @@ function processAcfFields(acf: any): any {
           return item
         })
       } else {
+        // Process nested objects
         if (value.url && typeof value.url === "string") {
           value.url = createProxyUrl(value.url)
+        }
+        if (value.source_url && typeof value.source_url === "string") {
+          value.source_url = createProxyUrl(value.source_url)
         }
         processedAcf[key] = processAcfFields(value)
       }
